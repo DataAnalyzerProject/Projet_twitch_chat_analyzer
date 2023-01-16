@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Web Page</title>
+    <script>
+        function sendPost() {
+            var number = document.getElementById("number").value;
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", "/home/display", true);
+            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    // Update the current page with the response
+                    document.getElementById("response").innerHTML = xhr.responseText;
+                }
+            };
+            xhr.send("number=" + number);
+        }
+    </script>
+</head>
+<body>
+Si vous souhaitez consulter les graphiques, vous pouvez vous rendre a cette <a href="http://localhost:3000/d/qCwW_Uh4k/analyse-replay-twitch?orgId=1">adresse</a>
+<form>
+    <label for="number">Number:</label>
+    <input type="text" id="number" name="number">
+    <button type="button" onclick="sendPost()"> Demande</button>
+</form>
+</body>
+</html>
