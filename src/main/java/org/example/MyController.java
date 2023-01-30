@@ -1,9 +1,11 @@
 package org.example;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessageSendingOperations;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.*;
@@ -18,6 +20,9 @@ import java.util.regex.Pattern;
 public class MyController {
 
     String path ="src/main/resources/";
+    Database database = new Database();
+    @Autowired
+    private SimpMessageSendingOperations messagingTemplate;
 
     @RequestMapping("/")
     public ResponseEntity<Resource> home(){
@@ -43,53 +48,55 @@ public class MyController {
     }
 
     @PostMapping("/display")
-    public ResponseEntity<FileSystemResource> display(@RequestParam("number") int number) {
+    public void display(@RequestParam("number") int number) {
+        if(database.exist(number)){
+            messagingTemplate.convertAndSend("/topic/progress",-1);
+        }else {
+            ProcessBuilder processBuilder = new ProcessBuilder();
+            //    processBuilder.command("./"+path+"TwitchDownloaderCLI", "chatdownload","-u", String.valueOf(number),"-o",path+number+".csv");
+            processBuilder.command(path + "TwitchDownloaderCLI.exe", "chatdownload", "-u", String.valueOf(number), "-o", path + number + ".csv");
+            System.out.println(processBuilder.command());
+            System.out.println(processBuilder.directory());
+            try {
 
-        ProcessBuilder processBuilder = new ProcessBuilder();
-        processBuilder.command("./"+path+"TwitchDownloaderCLI", "chatdownload","-u", String.valueOf(number),"-o",path+number+".csv");
-        System.out.println(processBuilder.command());
-        System.out.println(processBuilder.directory());
-        try {
+                Process process = processBuilder.start();
 
-            Process process = processBuilder.start();
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream()
+                        ));
 
-            StringBuilder output = new StringBuilder();
+                String line;
+                String pattern = "(\\d+)%";
 
-            BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()));
+                Pattern r = Pattern.compile(pattern);
 
-            String line;
-            while ((line = reader.readLine()) != null) {
-                output.append(line + "\n");
+                while ((line = reader.readLine()) != null) {
+                    System.out.println(line);
+                    Matcher m = r.matcher(line);
+                    if (m.find()) {
+                        int percent = Integer.parseInt(m.group(1));
+                        System.out.println("Percentage: " + percent);
+                        messagingTemplate.convertAndSend("/topic/progress", percent);
+
+                    }
+                }
+                int exitVal = process.waitFor();
+                if (exitVal == 0) {
+                    messagingTemplate.convertAndSend("/topic/progress", 99);
+                    System.out.println("Success!");
+                    converter(number);
+                } else {
+                    System.out.println("Erreur lors de l'execution " + exitVal);
+                }
+
+            } catch (IOException | InterruptedException e) {
+                e.printStackTrace();
             }
-
-            int exitVal = process.waitFor();
-            if (exitVal == 0) {
-
-                System.out.println("Success!");
-                System.out.println(output);
-                converter(number);
-                File file = new File(path+"templates/Success.html");
-                FileSystemResource resource = new FileSystemResource(file);
-                return ResponseEntity.ok()
-                        .contentType(MediaType.TEXT_HTML)
-                        .body(resource);
-            }else {
-                System.out.println("Erreur lors de l'execution "+exitVal);
-            }
-
-        } catch (IOException | InterruptedException e) {
-            e.printStackTrace();
+            System.out.println("Number: " + number);
         }
-        System.out.println("Number: " + number);
-
-        File file = new File(path+"templates/Success.html");
-        FileSystemResource resource = new FileSystemResource(file);
-        return ResponseEntity.ok()
-                .contentType(MediaType.TEXT_HTML)
-                .body(resource);
     }
     void converter(int number){
+        Database database = new Database();
         ArrayList<ChatLine> chatLines = new ArrayList<>();
         try {
             BufferedReader reader = new BufferedReader(new FileReader("src/main/resources/"+number+".csv"));
@@ -114,7 +121,8 @@ public class MyController {
             }
             reader.close();
             System.out.println(chatLines.get(1));
-            Database.saveObjects(chatLines,number);
+            database.saveObjects(chatLines,number,messagingTemplate);
+            System.out.println("Stockage terminé");
         } catch (Exception e) {
             e.printStackTrace();
         }
